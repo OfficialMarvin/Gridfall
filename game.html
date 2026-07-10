@@ -101,6 +101,15 @@
     border-left:14px solid transparent;border-right:14px solid transparent;
     border-bottom:16px solid rgba(255,45,90,.85);filter:drop-shadow(0 0 10px rgba(255,45,90,.8))}
 
+  /* railgun scope */
+  #scope{position:fixed;inset:0;display:none;z-index:14;pointer-events:none}
+  #scope .ring{position:absolute;inset:0;
+    background:radial-gradient(circle at 50% 50%, transparent 0 33vmin, rgba(255,45,120,.12) 33.4vmin, rgba(3,2,10,.985) 34.5vmin)}
+  #scope .lh{position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(55,233,255,.5)}
+  #scope .lv{position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(55,233,255,.5)}
+  #scope .mag{position:absolute;left:50%;bottom:12vmin;transform:translateX(-50%);
+    font-size:10px;letter-spacing:.35em;color:rgba(255,90,168,.8)}
+
   /* wave banner */
   #waveBanner{position:fixed;left:50%;top:26%;transform:translateX(-50%);text-align:center;opacity:0;z-index:32;width:100%}
   #waveBanner.on{animation:wb 2.8s ease-out}
@@ -149,6 +158,7 @@
 <!-- HUD -->
 <div id="hud" class="hidden">
   <div id="vignette"></div>
+  <div id="scope"><div class="ring"></div><div class="lh"></div><div class="lv"></div><div class="mag">4.6×&nbsp;JAVELIN OPTIC</div></div>
   <div id="xhair"><span class="h" id="xl"></span><span class="h" id="xr"></span><span class="v" id="xu"></span><span class="v" id="xd"></span><span class="dot"></span></div>
   <div id="hitmark"><span style="transform:rotate(45deg)"></span><span style="transform:rotate(-45deg)"></span></div>
   <div id="headshotPop">HEADSHOT</div>
@@ -235,7 +245,8 @@ const HUD = {
   banner:$('waveBanner'), bTitle:$('waveTitle'), bSub:$('waveSub'), inter:$('interTimer'),
   wpn:$('wpnName'), slots:$('slots'), nadeCount:$('nadeCount'),
   combo:$('combo'), comboX:$('comboX'), comboFill:$('comboFill'),
-  streak:$('streakPop'), dmgDir:$('dmgDir')
+  streak:$('streakPop'), dmgDir:$('dmgDir'),
+  scope:$('scope'), xhair:$('xhair')
 };
 
 /* ---------- game state ---------- */
@@ -315,9 +326,9 @@ const SFX = {
 /* ---------- three.js core ---------- */
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b0416);
-scene.fog = new THREE.Fog(0x0e0520, 34, 165);
+scene.fog = new THREE.Fog(0x0e0520, 40, 250);
 
-const BASE_FOV = 75, ADS_FOV = 52;
+const BASE_FOV = 75, ADS_FOV = 52, SCOPE_FOV = 24;
 const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth/innerHeight, 0.05, 600);
 
 const renderer = new THREE.WebGLRenderer({antialias:true});
@@ -359,11 +370,11 @@ function sunTexture(){
 }
 
 /* ---------- environment ---------- */
-const ARENA = 60;                 // half-size of the arena
+const ARENA = 90;                 // half-size of the arena
 const colliders = [];             // {minX,maxX,minZ,maxZ}
 const shootables = [];            // meshes bullets can hit
 const gates = [];                 // enemy spawn points
-const platforms = [];             // walkable flat tops {minX,maxX,minZ,maxZ,y}
+const platforms = [];             // walkable flat tops {minX,maxX,minZ,maxZ,y,base} — base>0 = overhang you can walk under
 const ramps = [];                 // sloped walkways {minX,maxX,minZ,maxZ,axis,h0,h1}
 
 (function buildWorld(){
@@ -373,11 +384,11 @@ const ramps = [];                 // sloped walkways {minX,maxX,minZ,maxZ,axis,h
   );
   ground.rotation.x = -Math.PI/2; scene.add(ground); shootables.push(ground);
 
-  const grid = new THREE.GridHelper(ARENA*2, 48, 0xff2d78, 0x2c1b5e);
+  const grid = new THREE.GridHelper(ARENA*2, 72, 0xff2d78, 0x2c1b5e);
   grid.material.transparent = true; grid.material.opacity = 0.55;
   grid.position.y = 0.02; scene.add(grid);
 
-  const farGrid = new THREE.GridHelper(600, 120, 0x1d1040, 0x1d1040);
+  const farGrid = new THREE.GridHelper(800, 160, 0x1d1040, 0x1d1040);
   farGrid.material.transparent = true; farGrid.material.opacity = 0.5;
   farGrid.position.y = -0.05; scene.add(farGrid);
 
@@ -391,28 +402,32 @@ const ramps = [];                 // sloped walkways {minX,maxX,minZ,maxZ,axis,h
   });
 
   const sun = new THREE.Mesh(
-    new THREE.CircleGeometry(46,64),
+    new THREE.CircleGeometry(60,64),
     new THREE.MeshBasicMaterial({map:sunTexture(), transparent:true, fog:false})
   );
-  sun.position.set(0,26,-230); scene.add(sun);
+  sun.position.set(0,32,-300); scene.add(sun);
 
   const mtnMat = new THREE.MeshBasicMaterial({color:0x140829});
-  for(let i=0;i<42;i++){
-    const a = (i/42)*Math.PI*2 + rand(-.05,.05);
-    const r = rand(120,190);
-    const m = new THREE.Mesh(new THREE.ConeGeometry(rand(10,26), rand(14,40), 4), mtnMat);
+  for(let i=0;i<48;i++){
+    const a = (i/48)*Math.PI*2 + rand(-.05,.05);
+    const r = rand(160,240);
+    const m = new THREE.Mesh(new THREE.ConeGeometry(rand(14,34), rand(18,52), 4), mtnMat);
     m.position.set(Math.sin(a)*r, 0, Math.cos(a)*r);
     m.rotation.y = rand(0,Math.PI);
     scene.add(m);
   }
 
+  /* ---- cover crates (solid, not climbable) ---- */
   const boxMat  = new THREE.MeshStandardMaterial({color:0x191033, roughness:.6, emissive:0x0d0722, emissiveIntensity:.8});
   const edgeMat = new THREE.LineBasicMaterial({color:0x37e9ff, transparent:true, opacity:.8});
   const layout = [
-    [ 10,  6, 3.4,2.6,3.4],[-12, 10, 4,3,2],[ 18,-14, 3,2.4,5],[-20,-8, 5,2.2,3],
-    [  0,-22, 6,2.8,2.4],[ 26,  6, 2.4,3.6,2.4],[-28, 18, 3,3,3],[  8, 24, 4.6,2.4,3],
-    [ -8,-34, 3,3.2,3],[ 32,-26, 4,2.6,4],[-34,-24, 2.6,4,2.6],[ 20, 34, 5,2.2,2.6],
-    [-22, 34, 3.4,2.8,3.4],[ 38, 18, 2.6,3,2.6]
+    [ 24, -6, 3.4,2.6,3.4],[-24,-14, 4,3,2],[ 14, 14, 3,2.4,4],[-16, 22, 5,2.2,3],
+    [  0,-26, 6,2.8,2.4],[ 28, 28, 2.4,3.6,2.4],[-34, 30, 3,3,3],[ 10, 32, 4.6,2.4,3],
+    [ -6,-58, 3,3.2,3],[ 34,-30, 4,2.6,4],[-40,-28, 2.6,4,2.6],[ 24, 54, 5,2.2,2.6],
+    [-24, 56, 3.4,2.8,3.4],[ 52, 30, 2.6,3,2.6],[ 62,  8, 3.4,2.6,3.4],[-62, -6, 4,2.8,3],
+    [-58, 28, 3,3,3],[ 58,-24, 3.4,3,3.4],[-14,-70, 4,2.6,3],[ 16,-66, 3,2.8,3],
+    [-44,-52, 3.4,2.6,3.4],[ 44,-52, 3,3,3],[-66, 48, 3,2.6,3],[ 64, 48, 3.4,2.8,3.4],
+    [-72,-40, 3,3,3],[ 70,-44, 3,2.6,3],[  0, 64, 4.4,2.6,3],[-46, 62, 3,2.8,3],[ 48, 64, 3,2.6,3]
   ];
   layout.forEach(b=>{
     const x=b[0], z=b[1], w=b[2], h=b[3], d=b[4];
@@ -424,47 +439,90 @@ const ramps = [];                 // sloped walkways {minX,maxX,minZ,maxZ,axis,h
     colliders.push({minX:x-w/2, maxX:x+w/2, minZ:z-d/2, maxZ:z+d/2});
   });
 
-  /* ---- elevated structures (walkable — amber trim marks climbable) ---- */
+  /* ---- structure kit (amber trim marks climbable) ---- */
   const structMat = new THREE.MeshStandardMaterial({color:0x1b1236, roughness:.55, emissive:0x120a2c, emissiveIntensity:.9});
   const trimMat   = new THREE.LineBasicMaterial({color:0xffb02e, transparent:true, opacity:.9});
-  function addStruct(w,h,d,x,z){
+  function slab(x0,x1,z0,z1,top,base){
+    base = base||0;
+    const w=x1-x0, d=z1-z0, h=top-base;
     const g = new THREE.BoxGeometry(w,h,d);
     const m = new THREE.Mesh(g, structMat);
-    m.position.set(x,h/2,z); scene.add(m); shootables.push(m);
+    m.position.set((x0+x1)/2, base+h/2, (z0+z1)/2);
+    scene.add(m); shootables.push(m);
     const e = new THREE.LineSegments(new THREE.EdgesGeometry(g), trimMat);
     e.position.copy(m.position); scene.add(e);
-    return m;
+    platforms.push({minX:x0, maxX:x1, minZ:z0, maxZ:z1, y:top, base});
   }
-  // central overlook podium (top at y=2.6) with ramps on east + west sides
-  addStruct(9,2.6,9, 0,0);
-  platforms.push({minX:-4.5,maxX:4.5,minZ:-4.5,maxZ:4.5,y:2.6});
-  const pad = new THREE.Mesh(new THREE.PlaneGeometry(8.4,8.4),
-    new THREE.MeshBasicMaterial({color:0xffb02e, transparent:true, opacity:.07}));
-  pad.rotation.x=-Math.PI/2; pad.position.y=2.62; scene.add(pad);
-  const rampAngle = Math.atan2(2.6,7), rampLen = Math.hypot(2.6,7);
-  function addRamp(cx, sign){
-    const g = new THREE.BoxGeometry(rampLen,0.28,3.2);
+  function ramp(x0,x1,z0,z1,axis,h0,h1){
+    const run  = axis==='x' ? (x1-x0) : (z1-z0);
+    const wide = axis==='x' ? (z1-z0) : (x1-x0);
+    const rise = h1-h0;
+    const len  = Math.hypot(run, rise);
+    const g = new THREE.BoxGeometry(axis==='x'?len:wide, 0.3, axis==='x'?wide:len);
     const m = new THREE.Mesh(g, structMat);
-    m.position.set(cx,1.18,0);
-    m.rotation.z = -sign*rampAngle;
+    m.position.set((x0+x1)/2, (h0+h1)/2, (z0+z1)/2);
+    const ang = Math.atan2(rise, run);
+    if(axis==='x') m.rotation.z = ang; else m.rotation.x = -ang;
     scene.add(m); shootables.push(m);
     const e = new THREE.LineSegments(new THREE.EdgesGeometry(g), trimMat);
     e.position.copy(m.position); e.rotation.copy(m.rotation); scene.add(e);
+    ramps.push({minX:x0, maxX:x1, minZ:z0, maxZ:z1, axis, h0, h1});
   }
-  addRamp( 8,  1); ramps.push({minX: 4.5, maxX: 11.5, minZ:-1.7, maxZ:1.7, axis:'x', h0:2.6, h1:0});
-  addRamp(-8, -1); ramps.push({minX:-11.5, maxX: -4.5, minZ:-1.7, maxZ:1.7, axis:'x', h0:0, h1:2.6});
-
-  // SE watchtower (roof at y=3.0) with a 5-step staircase on its south face
-  addStruct(6,3,6, 36,-6);
-  platforms.push({minX:33,maxX:39,minZ:-9,maxZ:-3,y:3});
-  for(let i=1;i<=5;i++){
-    const y = 3 - i*0.5;
-    const zc = -9 - (i-0.5)*1.3;
-    addStruct(3.6, y, 1.3, 36, zc);
-    platforms.push({minX:36-1.8, maxX:36+1.8, minZ:zc-0.65, maxZ:zc+0.65, y:y});
+  function pad(x0,x1,z0,z1,y,color){
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(x1-x0-0.6, z1-z0-0.6),
+      new THREE.MeshBasicMaterial({color, transparent:true, opacity:.08}));
+    p.rotation.x=-Math.PI/2; p.position.set((x0+x1)/2, y+0.03, (z0+z1)/2); scene.add(p);
+  }
+  function glow(x,y,z,color){
+    const l = new THREE.PointLight(color, .8, 26); l.position.set(x,y,z); scene.add(l);
   }
 
-  [[0,-ARENA+1.4],[0,ARENA-1.4],[-ARENA+1.4,0],[ARENA-1.4,0]].forEach(p=>{
+  /* NEXUS — central three-tier ziggurat (2.8 / 5.6) */
+  slab(-8,8,-8,8, 2.8);            pad(-8,8,-8,8, 2.8, 0xffb02e);
+  slab(-4.5,4.5,-4.5,4.5, 5.6, 2.8); pad(-4.5,4.5,-4.5,4.5, 5.6, 0x37e9ff);
+  ramp(  8, 17, -1.8, 1.8, 'x', 2.8, 0);   // east: ground → tier1
+  ramp(-17, -8, -1.8, 1.8, 'x', 0, 2.8);   // west: ground → tier1
+  ramp(-1.8, 1.8,  4.5, 8, 'z', 5.6, 2.8); // south: tier1 → tier2
+  ramp(-1.8, 1.8, -8, -4.5, 'z', 2.8, 5.6);// north: tier1 → tier2
+  glow(0, 7, 0, 0x37e9ff);
+
+  /* EAST COMPOUND — twin roofs (4.2) joined by a walk-under skybridge */
+  slab(36,48,-14,-4, 4.2);  pad(36,48,-14,-4, 4.2, 0xffb02e);   // roof A (south)
+  slab(36,48,  4,14, 4.2);  pad(36,48,  4,14, 4.2, 0xffb02e);   // roof B (north)
+  slab(39,45, -4, 4, 4.2, 3.4);                                  // skybridge (underpass below)
+  ramp(39,45, 14,22, 'z', 4.2, 0);          // north ramp up roof B
+  ramp(48,56, -11.5,-6.5, 'x', 4.2, 0);     // east ramp up roof A
+  glow(42, 6, 0, 0xffb02e);
+
+  /* WEST BASTION — fortress deck (3.4) with upper battlement (6.2) */
+  slab(-52,-36, 2,16, 3.4);   pad(-52,-36,2,16, 3.4, 0xffb02e);
+  slab(-52,-44, 8,16, 6.2, 3.4); pad(-52,-44,8,16, 6.2, 0xff2d78);
+  ramp(-36,-28, 6,10, 'x', 3.4, 0);         // east approach
+  ramp(-50,-46, -6,2, 'z', 0, 3.4);         // south approach
+  ramp(-44,-38, 10.5,14.5, 'x', 6.2, 3.4);  // deck → battlement
+  glow(-48, 8, 12, 0xff2d78);
+
+  /* SOUTH OUTPOST — twin pads (3.0) with an underpass bridge over the street */
+  slab(-22,-10,-50,-38, 3.0);  pad(-22,-10,-50,-38, 3.0, 0xffb02e);
+  slab(  2, 14,-50,-38, 3.0);  pad(2,14,-50,-38, 3.0, 0xffb02e);
+  slab(-10,  2,-46,-42, 3.0, 2.3);          // bridge (duck under)
+  ramp(-30,-22,-46,-42, 'x', 0, 3.0);       // west ramp
+  ramp( 14, 22,-46,-42, 'x', 3.0, 0);       // east ramp
+  glow(-4, 4.5, -44, 0x8b5bff);
+
+  /* NORTH RIDGE — long catwalk (3.6) with ramps at both ends */
+  slab(-20,20, 42,48, 3.6);  pad(-20,20,42,48, 3.6, 0xffb02e);
+  ramp(-28,-20, 43,47, 'x', 0, 3.6);
+  ramp( 20, 28, 43,47, 'x', 3.6, 0);
+  glow(0, 5.5, 45, 0xff2d78);
+
+  /* jump-crates — low enough to hop onto from the ground */
+  [[18,-24],[-20,14],[30,-16],[-12,32],[8,-32]].forEach(p2=>{
+    slab(p2[0]-1.5, p2[0]+1.5, p2[1]-1.5, p2[1]+1.5, 1.3);
+  });
+
+  /* spawn gates */
+  [[0,-ARENA+1.4],[0,ARENA-1.4],[-ARENA+1.4,0],[ARENA-1.4,0],[60,60],[-60,-60]].forEach(p=>{
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(1.6,0.12,10,40),
       new THREE.MeshBasicMaterial({color:0xff2d78})
@@ -484,8 +542,8 @@ const WEAPONS = [
   { name:'PRISM SCATTERGUN',   auto:false, fireInt:0.8,   dmg:12,  pellets:8, spread:0.05,  heatAdd:0.55,
     magSize:6,  reload:1.6,  kick:2.2, recoil:0.028, tracer:0xffd08a, pierce:false,
     sfx(){ noise(0.16,0.5,650); blip(90,0.16,'square',0.2,40); } },
-  { name:'JAVELIN RAILGUN',    auto:false, fireInt:1.15,  dmg:120, pellets:1, spread:0.001, heatAdd:0.25,
-    magSize:4,  reload:1.9,  kick:2.6, recoil:0.035, tracer:0xff5aa8, pierce:true,
+  { name:'JAVELIN RAILGUN',    auto:false, fireInt:1.15,  dmg:150, pellets:1, spread:0.001, heatAdd:0.25,
+    magSize:4,  reload:1.9,  kick:2.6, recoil:0.035, tracer:0xff5aa8, pierce:true, scope:true,
     sfx(){ blip(1800,0.4,'sawtooth',0.2,120); noise(0.25,0.3,2000); blip(240,0.2,'square',0.1,60); } }
 ];
 const wstate = WEAPONS.map(w=>({mag:w.magSize}));
@@ -636,10 +694,10 @@ function updateTracers(dt){
 /* ---------- enemies ---------- */
 const enemies = [];
 const TYPES = {
-  stalker:{hp:40, speed:5.2, dmg:8,  score:100, color:0xff2d78, name:'STALKER'},
-  brute:  {hp:110,speed:2.4, dmg:18, score:250, color:0xff5a1f, name:'BRUTE'},
-  spitter:{hp:38, speed:3.2, dmg:0,  score:200, color:0x8b5bff, name:'SPITTER'},
-  warden: {hp:520,speed:1.7, dmg:24, score:1500,color:0xffd23e, name:'WARDEN'}
+  stalker:{hp:40, speed:5.6, dmg:8,  score:100, color:0xff2d78, name:'STALKER'},
+  brute:  {hp:110,speed:2.7, dmg:18, score:250, color:0xff5a1f, name:'BRUTE'},
+  spitter:{hp:38, speed:3.6, dmg:0,  score:200, color:0x8b5bff, name:'SPITTER'},
+  warden: {hp:520,speed:1.9, dmg:24, score:1500,color:0xffd23e, name:'WARDEN'}
 };
 function makeEnemy(type, x, z, hpScale){
   const t = TYPES[type];
@@ -764,32 +822,55 @@ function removeEnemy(e){
 }
 const V1 = new THREE.Vector3(), V2 = new THREE.Vector3();
 
-/* nav routes: waypoint chains from ground level up to each elevated area */
+/* nav routes: waypoint chains from ground level up to each elevated district */
 const navRoutes = {
-  podium: [
-    [{x: 14.5,z:0},{x: 8,z:0},{x: 1.5,z:0}],   // east ramp
-    [{x:-14.5,z:0},{x:-8,z:0},{x:-1.5,z:0}]    // west ramp
+  nexus: [
+    [{x:19,z:0},{x:12,z:0},{x:6.5,z:0},{x:6,z:6.8},{x:0,z:7.6},{x:0,z:2.2}],        // east ramp → tier1 → south ramp foot → tier2
+    [{x:-19,z:0},{x:-12,z:0},{x:-6.5,z:0},{x:-6,z:-6.8},{x:0,z:-7.6},{x:0,z:-2.2}]  // west ramp → tier1 → north ramp foot → tier2
   ],
-  tower: [
-    [{x:36,z:-17.6},{x:36,z:-12.2},{x:36,z:-5.5}] // stairs
+  east: [
+    [{x:42,z:24},{x:42,z:18},{x:42,z:10},{x:42,z:0},{x:42,z:-8}],    // north ramp → roof B → bridge → roof A
+    [{x:58,z:-9},{x:52,z:-9},{x:45,z:-9},{x:42,z:-2}]                // east ramp → roof A → bridge
+  ],
+  west: [
+    [{x:-26,z:8},{x:-32,z:8},{x:-38,z:8},{x:-37,z:12.5},{x:-42,z:12.5},{x:-48,z:12.5}],            // east ramp → deck → battlement ramp foot → top
+    [{x:-48,z:-8},{x:-48,z:-2},{x:-46,z:6},{x:-38,z:8.5},{x:-37,z:12.5},{x:-42,z:12.5},{x:-48,z:12.5}] // south ramp → deck → battlement
+  ],
+  south: [
+    [{x:-32,z:-44},{x:-26,z:-44},{x:-16,z:-44},{x:-4,z:-44},{x:8,z:-44}], // west ramp → pad → bridge → pad
+    [{x:24,z:-44},{x:18,z:-44},{x:8,z:-44},{x:-4,z:-44},{x:-16,z:-44}]    // east ramp, mirrored
+  ],
+  north: [
+    [{x:-31,z:45},{x:-25,z:45},{x:-14,z:45},{x:0,z:45}],
+    [{x:31,z:45},{x:25,z:45},{x:14,z:45},{x:0,z:45}]
   ]
 };
+const ZONES = [
+  {id:'nexus', x0:-20, x1:20,  z0:-10, z1:10},
+  {id:'east',  x0:32,  x1:58,  z0:-18, z1:24},
+  {id:'west',  x0:-54, x1:-26, z0:-8,  z1:18},
+  {id:'south', x0:-34, x1:26,  z0:-52, z1:-36},
+  {id:'north', x0:-30, x1:30,  z0:40,  z1:50}
+];
 function playerZone(){
   const pgH = groundHeightAt(player.position.x, player.position.z, player.position.y+0.35);
-  if(pgH < 1.2) return null;
+  if(pgH < 1.6) return null; // jump-crates (1.3) don't need routing — melee still reaches
   const x = player.position.x, z = player.position.z;
-  if(x>-13 && x<13 && z>-6 && z<6) return 'podium';
-  if(x>32 && x<40 && z>-17 && z<-2) return 'tower';
+  for(const zn of ZONES){
+    if(x>zn.x0 && x<zn.x1 && z>zn.z0 && z<zn.z1) return zn.id;
+  }
   return null;
 }
 function pickRoute(zone, pos){
-  const routes = navRoutes[zone];
-  let best = routes[0], bd = Infinity;
-  for(const r of routes){
-    const d = (r[0].x-pos.x)*(r[0].x-pos.x)+(r[0].z-pos.z)*(r[0].z-pos.z);
-    if(d<bd){ bd=d; best=r; }
+  // join the chain at the nearest waypoint, with a bias toward earlier (ground-level) waypoints
+  let best = navRoutes[zone][0], bi = 0, bs = Infinity;
+  for(const r of navRoutes[zone]){
+    for(let i=0;i<r.length;i++){
+      const s = Math.hypot(r[i].x-pos.x, r[i].z-pos.z) + i*3;
+      if(s<bs){ bs=s; best=r; bi=i; }
+    }
   }
-  return best;
+  return {r:best, i:bi};
 }
 
 function updateEnemies(dt){
@@ -808,7 +889,11 @@ function updateEnemies(dt){
     let tx = px, tz = pz;
     if(e.type!=='spitter'){
       if(zone && g.position.y < player.position.y - 0.9){
-        if(!e.route || e.zone!==zone){ e.zone=zone; e.wp=0; e.route=pickRoute(zone,g.position); }
+        if(!e.route || e.zone!==zone){
+          e.zone=zone;
+          const pr = pickRoute(zone, g.position);
+          e.route = pr.r; e.wp = pr.i;
+        }
         const w = e.route[Math.min(e.wp, e.route.length-1)];
         tx = w.x; tz = w.z;
         const wdx = tx-g.position.x, wdz = tz-g.position.z;
@@ -863,8 +948,8 @@ function updateEnemies(dt){
         if(e.novaCd<=0 && pDist<28){ e.novaCd = 6; fireNova(e); }
       }
     }
-    // obstacle + bounds collision (height-aware)
-    const c = collideCircle(g.position.x, g.position.z, 0.65, g.position.y);
+    // obstacle + bounds collision (height-aware; warden is too tall for underpasses)
+    const c = collideCircle(g.position.x, g.position.z, 0.65, g.position.y, e.type==='warden'?2.6:1.7);
     g.position.x = clamp(c[0], -ARENA+1, ARENA-1);
     g.position.z = clamp(c[1], -ARENA+1, ARENA-1);
     // follow terrain (ramps, stairs, platforms); spitters also gain altitude toward the player
@@ -943,7 +1028,7 @@ function updateSpits(dt){
     }
     if(!dead){
       for(const pl of platforms){
-        if(p.x>pl.minX&&p.x<pl.maxX&&p.z>pl.minZ&&p.z<pl.maxZ&&p.y<pl.y){ dead=true; break; }
+        if(p.x>pl.minX&&p.x<pl.maxX&&p.z>pl.minZ&&p.z<pl.maxZ&&p.y<pl.y&&p.y>(pl.base||0)){ dead=true; break; }
       }
     }
     if(!dead){
@@ -1051,7 +1136,7 @@ function updateNades(dt){
     n.mesh.material.emissiveIntensity = 1.2 + Math.sin(S.time*(10+(2.2-n.t)*14))*0.8;
     n.vy -= 22*dt;
     let nx = p.x + n.vx*dt, nz = p.z + n.vz*dt;
-    const c = collideCircle(nx, nz, 0.14, p.y);
+    const c = collideCircle(nx, nz, 0.14, p.y, 0.35);
     if(Math.abs(c[0]-nx) > 1e-6){ n.vx *= -0.45; }
     if(Math.abs(c[1]-nz) > 1e-6){ n.vz *= -0.45; }
     p.x = clamp(c[0], -ARENA+0.4, ARENA-0.4);
@@ -1115,7 +1200,7 @@ function updateWaves(dt){
   if(S.pending.length>0){
     S.spawnT -= dt;
     if(S.spawnT<=0){
-      S.spawnT = Math.max(0.35, 1.2 - S.wave*0.05);
+      S.spawnT = Math.max(0.28, 1.0 - S.wave*0.05);
       const gate = gates[(Math.random()*gates.length)|0];
       const type = S.pending.pop();
       makeEnemy(type, gate.x+rand(-1,1), gate.z+rand(-1,1), 1+(S.wave-1)*0.12);
@@ -1154,8 +1239,8 @@ function groundHeightAt(x,z,curY){
   }
   return g;
 }
-function collideCircle(px,pz,r,py){
-  py = py||0;
+function collideCircle(px,pz,r,py,bodyH){
+  py = py||0; bodyH = bodyH||1.7;
   function solve(minX,maxX,minZ,maxZ){
     const cx = clamp(px,minX,maxX), cz = clamp(pz,minZ,maxZ);
     const dx = px-cx, dz = pz-cz;
@@ -1172,7 +1257,10 @@ function collideCircle(px,pz,r,py){
     }
   }
   for(const b of colliders) solve(b.minX,b.maxX,b.minZ,b.maxZ);
-  for(const p of platforms) if(py < p.y-0.55) solve(p.minX,p.maxX,p.minZ,p.maxZ);
+  for(const p of platforms){
+    // solid only if we can't step up onto it AND our body actually overlaps the slab (overhangs pass underneath)
+    if(py < p.y-0.55 && py + bodyH > (p.base||0)) solve(p.minX,p.maxX,p.minZ,p.maxZ);
+  }
   for(const rm of ramps){
     const cx = clamp(px,rm.minX,rm.maxX), cz = clamp(pz,rm.minZ,rm.maxZ);
     const dx = px-cx, dz = pz-cz;
@@ -1234,10 +1322,14 @@ function updatePlayer(dt){
   camera.rotation.z = (Math.random()-0.5)*S.shake*0.06;
   camera.rotation.x = (Math.random()-0.5)*S.shake*0.05;
 
-  // fov / gun pose
-  const targetFov = S.ads ? ADS_FOV : BASE_FOV;
+  // fov / gun pose (railgun ADS = full sniper scope)
+  const scoped = S.ads && !!curW().scope;
+  const targetFov = S.ads ? (scoped ? SCOPE_FOV : ADS_FOV) : BASE_FOV;
   camera.fov += (targetFov-camera.fov)*Math.min(1,dt*12);
   camera.updateProjectionMatrix();
+  gunModels[S.wIdx].group.visible = !scoped;
+  HUD.scope.style.display = scoped ? 'block' : 'none';
+  HUD.xhair.style.opacity = scoped ? 0 : 1;
   const home = S.ads ? GUN_ADS : GUN_HOME;
   gun.position.x += (home.x-gun.position.x)*Math.min(1,dt*12);
   gun.position.y += (home.y-gun.position.y+(moving?Math.sin(bobT*2)*0.008:0))*Math.min(1,dt*12);
@@ -1312,6 +1404,7 @@ function tryShoot(dt){
 
     if(w.pierce){
       // railgun: punch through every enemy along the beam, stop at world geometry
+      // basic enemies die to a single body shot; only the warden soaks it
       const damaged = new Set();
       for(const h of hits){
         const ud = h.object.userData;
@@ -1319,7 +1412,8 @@ function tryShoot(dt){
           if(!ud.enemy.alive || damaged.has(ud.enemy)) continue;
           damaged.add(ud.enemy);
           anyHit = true;
-          if(applyHit(ud.enemy, !!ud.isHead, h.point, w.dmg)) anyKill = true;
+          const dmgVal = (ud.enemy.type!=='warden') ? 100000 : w.dmg;
+          if(applyHit(ud.enemy, !!ud.isHead, h.point, dmgVal)) anyKill = true;
           burst(h.point.x,h.point.y,h.point.z, 0xff9ecf, 9, 5);
         } else { endPoint = h.point; break; }
       }
@@ -1490,8 +1584,9 @@ document.addEventListener('keyup', e=>{
 });
 document.addEventListener('mousemove', e=>{
   if(!S.locked || S.mode!=='play') return;
-  yaw   -= e.movementX * 0.0022 * S.sens;
-  pitch -= e.movementY * 0.0022 * S.sens;
+  const sMul = (S.ads && !!curW().scope) ? 0.45 : 1;
+  yaw   -= e.movementX * 0.0022 * S.sens * sMul;
+  pitch -= e.movementY * 0.0022 * S.sens * sMul;
   pitch = clamp(pitch, -1.45, 1.45);
 });
 document.addEventListener('mousedown', e=>{
@@ -1551,7 +1646,7 @@ function resetGame(){
   S.score=0; S.kills=0; S.shots=0; S.hits=0;
   S.wave=0; S.pending=[]; S.interActive=false;
   S.dmgFlash=0; S.shake=0; S.lastHurt=-99;
-  player.position.set(0,0,20); yaw=0; pitch=0; recoil=0; vel.set(0,0); velY=0;
+  player.position.set(0,0,26); yaw=0; pitch=0; recoil=0; vel.set(0,0); velY=0;
 }
 function startGame(){
   audioInit();
@@ -1605,14 +1700,14 @@ function animate(){
     // slow orbital camera on the menu
     yaw += dt*0.05;
     player.rotation.y = yaw;
-    player.position.set(Math.sin(S.time*0.05)*4, 0, 20);
+    player.position.set(Math.sin(S.time*0.05)*4, 0, 26);
   }
   updateParticles(dt);
   updateTracers(dt);
   updateExplosions(dt);
   renderer.render(scene, camera);
 }
-player.position.set(0,0,20);
+player.position.set(0,0,26);
 animate();
 
 /* ---------- resize ---------- */
