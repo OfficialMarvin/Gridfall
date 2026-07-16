@@ -14,14 +14,4 @@
 
 <br>
 
-<a href="https://officialmarvin.github.io/Gridfall/game.html">
-  <img src="https://img.shields.io/badge/LAUNCH%20THE%20GAME-→-e94560?style=for-the-badge&labelColor=16213e" height="45" alt="Launch">
-</a>
 
-<br><br>
-
----
-
-<sub>Click any button above to start playing</sub>
-
-</div>
