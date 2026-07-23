@@ -1,3 +1,3 @@
-Fully vibe coded web shooter play here:
+Fully vibe coded web shooter, play here: 
 
-officialmarvin.github.io/Gridfall/
+<https://officialmarvin.github.io/Gridfall/>
